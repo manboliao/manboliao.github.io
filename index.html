@@ -66,25 +66,43 @@
   }
 
   function onScan(code) {
-    scanner.pause();
-    const res = document.getElementById('result');
-    const name = document.getElementById('name');
-    res.style.display = 'block';
-    name.innerText = "⏳ 比對中...";
-
-    // 使用最穩定的通訊方式
-    fetch(`${GAS_URL}?id=${encodeURIComponent(code)}`)
-      .then(r => r.json())
-      .then(d => {
-        name.innerText = d.status === "success" ? "✅ " + d.name : "❌ " + d.msg;
-        if(navigator.vibrate) navigator.vibrate(200);
-        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 3000);
-      })
-      .catch(e => {
-        name.innerText = "❌ 連線失敗";
-        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 3000);
-      });
+  // 前端初步過濾：只接受包含身分證格式的字串
+  const regex = /[A-Z][1-289]\d{8}/i;
+  const match = code.match(regex);
+  
+  if (!match) {
+    // 如果掃到的東西不符合格式，就不理它，繼續掃描
+    console.log("偵測到雜訊，自動忽略: " + code);
+    return; 
   }
+
+  // 只有符合格式才暫停掃描並比對
+  scanner.pause();
+  const cleanCode = match[0].toUpperCase();
+  
+  const res = document.getElementById('result');
+  const name = document.getElementById('res-name');
+  res.style.display = 'block';
+  name.innerText = "⏳ 比對中...";
+
+  fetch(`${GAS_URL}?id=${encodeURIComponent(cleanCode)}`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === "success") {
+        name.innerText = "✅ " + d.name;
+        name.style.color = "#28a745";
+      } else {
+        name.innerText = "❌ " + d.msg;
+        name.style.color = "#dc3545";
+      }
+      if(navigator.vibrate) navigator.vibrate(200);
+      setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 2500);
+    })
+    .catch(e => {
+      name.innerText = "連線失敗";
+      setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 2500);
+    });
+}
 </script>
 </body>
 </html>
