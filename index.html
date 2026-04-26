@@ -3,265 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>專業報到掃描系統</title>
+  <title>報到系統-影像修復版</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    /* 強制清除所有邊距，確保全螢幕 */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #000; color: #fff; font-family: sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
+    body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
+    #start-screen { position: fixed; inset: 0; background: #1a1a1a; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .btn { padding: 20px 50px; font-size: 1.3em; background: #007bff; color: white; border: none; border-radius: 50px; }
     
-    /* 相機容器：絕對定位在最底層，且確保有寬高 */
-    #reader { 
-      position: fixed; 
-      top: 0; 
-      left: 0; 
-      width: 100vw !important; 
-      height: 100vh !important; 
-      z-index: 1; 
-      background: #000;
-    }
+    /* 相機容器 */
+    #reader { width: 100vw; height: 100vh; background: #000; }
+    /* 強制 Video 標籤填滿 */
+    #reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
 
-    /* 強制內部的 Video 標籤撐開 */
-    #reader video {
-      width: 100% !important;
-      height: 100% !important;
-      object-fit: cover !important;
-    }
-
-    /* 初始啟動畫面 */
-    #start-screen { 
-      position: fixed; inset: 0; background: #1a1a1a; 
-      z-index: 100; display: flex; flex-direction: column; 
-      align-items: center; justify-content: center; 
-    }
-    .btn-start { padding: 20px 60px; font-size: 1.4em; background: #007bff; color: white; border: none; border-radius: 50px; cursor: pointer; }
-
-    /* 掃描框區域 */
-    #overlay { position: fixed; inset: 0; z-index: 5; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .scan-box { width: 80%; height: 140px; border: 2px solid #28a745; background: rgba(40,167,69,0.1); position: relative; }
-    .scan-line { position: absolute; width: 100%; height: 2px; background: #ff0000; top: 50%; animation: scan-line-anim 2s infinite linear; }
-    @keyframes scan-line-anim { 0%, 100% { top: 10%; } 50% { top: 90%; } }
-
-    /* 結果顯示面板 */
-    #result-panel { 
-      position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%);
-      width: 85%; background: rgba(0,0,0,0.9); padding: 20px; 
-      border-radius: 20px; text-align: center; display: none; z-index: 1000; 
-      border: 1px solid #444; 
-    }
+    #overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .scan-box { width: 80%; height: 120px; border: 2px solid #28a745; background: rgba(40,167,69,0.1); }
+    
+    #result { position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%); width: 80%; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 15px; z-index: 101; text-align: center; display: none; border: 1px solid #444; }
   </style>
 </head>
 <body>
 
   <div id="start-screen">
-    <h2 style="margin-bottom:30px;">課程報到掃描器</h2>
-    <button class="btn-start" onclick="startScanner()">啟動相機</button>
+    <h3>課程報到系統</h3>
+    <button class="btn" onclick="init()">啟動掃描槍模式</button>
   </div>
 
   <div id="reader"></div>
 
   <div id="overlay">
-    <div class="scan-box"><div class="scan-line"></div></div>
-    <p style="margin-top:20px; text-shadow: 1px 1px 3px #000;">請將條碼置於框內</p>
+    <div class="scan-box"></div>
+    <p style="margin-top:15px; text-shadow: 1px 1px 2px #000;">對準身分證背面條碼</p>
   </div>
 
-  <div id="result-panel">
-    <div id="res-msg" style="color:#aaa; font-size:0.9em; margin-bottom:5px;"></div>
-    <div id="res-name" style="font-size:1.8em; font-weight:bold; color:#28a745;"></div>
-  </div>
+  <div id="result"><div id="name" style="font-size:1.5em; font-weight:bold; color:#28a745;"></div></div>
 
 <script>
   // ⚠️ 填入您剛才測試成功的 GAS /exec 網址
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
-  let html5QrCode;
-
-  async function startScanner() {
-    document.getElementById('start-screen').style.display = 'none';
-    
-    // 初始化前先清空容器，避免重複載入導致的黑畫面
-    const readerDiv = document.getElementById('reader');
-    readerDiv.innerHTML = ""; 
-
-    html5QrCode = new Html5Qrcode("reader");
-
-    const config = { 
-      fps: 15, 
-      qrbox: { width: 300, height: 120 }
-    };
-
-    try {
-      await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess);
-      
-      // 【終極修正】：主動尋找 video 標籤並啟動它
-      const videoElement = readerDiv.querySelector('video');
-      if (videoElement) {
-        videoElement.setAttribute('playsinline', 'true');
-        videoElement.muted = true; // 靜音是自動播放的必要條件
-        videoElement.play().catch(e => console.log("自動播放被攔截，等待互動中"));
-      }
-      
-    } catch (err) {
-      alert("啟動錯誤：" + err);
-      document.getElementById('start-screen').style.display = 'flex';
-    }
-  }
-
-  function onScanSuccess(decodedText) {
-    if (html5QrCode.getState() !== Html5QrcodeScannerState.SCANNING) return;
-    
-    html5QrCode.pause(); // 暫停掃描
-    
-    const panel = document.getElementById('result-panel');
-    const msg = document.getElementById('res-msg');
-    const name = document.getElementById('res-name');
-    
-    panel.style.display = 'block';
-    msg.innerText = "⏳ 正在比對資料...";
-    name.innerText = "請稍候";
-
-    // 使用剛剛無痕測試成功的 GET 方式
-    fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`)
-      .then(res => res.json())
-      .then(data => {
-        msg.innerText = data.msg;
-        name.innerText = data.status === "error" ? "❌ 查無此人" : data.name;
-        name.style.color = (data.status === "success") ? "#28a745" : (data.status === "warn" ? "#ffc107" : "#dc3545");
-        
-        if (navigator.vibrate) navigator.vibrate(200);
-        
-        // 3秒後恢復掃描
-        setTimeout(() => {
-          panel.style.display = 'none';
-          html5QrCode.resume();
-        }, 3000);
-      })
-      .catch(err => {
-        msg.innerText = "❌ 連線失敗";
-        name.innerText = "請檢查網路";
-        setTimeout(() => { panel.style.display = 'none'; html5QrCode.resume(); }, 3000);
-      });
-  }
-</script>
-</body>
-</html>
-<script>
-  // ==========================================
-  // ⚠️ 請在此貼上您最新的 /exec 網址
-  // ==========================================
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
-
+  const GAS_URL = "https://script.google.com/macros/s/您的ID/exec";
   let scanner;
 
-  async function go() {
+  async function init() {
     document.getElementById('start-screen').style.display = 'none';
     scanner = new Html5Qrcode("reader");
-    try {
-      await scanner.start({ facingMode: "environment" }, { fps: 20, qrbox: { width: 280, height: 120 } }, onScan);
-      const v = document.querySelector('#reader video');
-      if (v) { v.setAttribute('playsinline', 'true'); v.play(); }
-    } catch (err) {
-      alert("啟動錯誤: " + err);
-      document.getElementById('start-screen').style.display = 'flex';
-    }
-  }
-
-  function onScan(code) {
-    scanner.pause();
-    const res = document.getElementById('result');
-    const msg = document.getElementById('res-msg');
-    const name = document.getElementById('res-name');
-    
-    res.style.display = 'block';
-    msg.innerText = "⏳ 正在比對資料...";
-    name.innerText = "讀取中";
-
-    // 使用最穩定的 GET 方式傳輸
-    fetch(`${GAS_URL}?id=${encodeURIComponent(code)}`)
-      .then(r => r.json())
-      .then(d => {
-        msg.innerText = d.msg;
-        name.innerText = (d.status === "error") ? "❌ 無名單" : d.name;
-        name.style.color = (d.status === "success") ? "#28a745" : (d.status === "warn" ? "#ffc107" : "#dc3545");
-        
-        if(navigator.vibrate) navigator.vibrate(200);
-        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 3000);
-      })
-      .catch(e => {
-        msg.innerText = "❌ 連線失敗";
-        name.innerText = "請檢查網路";
-        console.error(e);
-        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 3000);
-      });
-  }
-</script>
-</body>
-</html>    .scan-line { position: absolute; width: 100%; height: 2px; background: #ff0000; top: 50%; animation: scan-m 2s infinite linear; }
-    @keyframes scan-m { 0%, 100% { top: 10%; } 50% { top: 90%; } }
-
-    #result { 
-      position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%);
-      width: 80%; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 15px; 
-      z-index: 100; text-align: center; display: none; border: 1px solid #444;
-    }
-  </style>
-</head>
-<body>
-
-  <div id="start-screen">
-    <h3>中醫課程報到系統</h3>
-    <button class="btn" onclick="go()">啟動相機</button>
-    <p style="color:#666; margin-top:20px;">請確保使用 Safari 或 Chrome</p>
-  </div>
-
-  <div id="reader"></div>
-
-  <div id="overlay">
-    <div class="scan-box"><div class="scan-line"></div></div>
-    <p style="margin-top:15px; background: rgba(0,0,0,0.5); padding: 5px 10px;">請將條碼置於綠框內</p>
-  </div>
-
-  <div id="result">
-    <div id="name" style="font-size:1.5em; font-weight:bold; color:#28a745;"></div>
-  </div>
-
-<script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
-  let scanner;
-
-  async function go() {
-    document.getElementById('start-screen').style.display = 'none';
-
-    // 1. 初始化掃描器
-    scanner = new Html5Qrcode("reader");
-
-    const config = { 
-      fps: 20, 
-      qrbox: { width: 280, height: 120 },
-      // 移除一切多餘的限制，讓它跑預設最穩定的模式
-    };
 
     try {
-      // 2. 啟動
       await scanner.start(
         { facingMode: "environment" }, 
-        config, 
+        { fps: 15, qrbox: { width: 280, height: 120 } },
         onScan
       );
 
-      // 3. 【黑畫面終結者】：強制 Video 標籤播放
+      // 【黑畫面特效藥】：強迫 Video 播放
       const v = document.querySelector('#reader video');
       if (v) {
         v.setAttribute('playsinline', 'true');
-        v.setAttribute('muted', 'true');
-        v.setAttribute('autoplay', 'true');
-        v.play(); // 強制執行播放指令
+        v.muted = true;
+        v.play();
       }
-      
-      console.log("相機已啟動並嘗試播放");
-
     } catch (err) {
       alert("相機啟動錯誤: " + err);
-      document.getElementById('start-screen').style.display = 'flex';
     }
   }
 
@@ -269,19 +69,16 @@
     scanner.pause();
     const res = document.getElementById('result');
     const name = document.getElementById('name');
-    
     res.style.display = 'block';
     name.innerText = "⏳ 比對中...";
 
+    // 使用最穩定的通訊方式
     fetch(`${GAS_URL}?id=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(d => {
         name.innerText = d.status === "success" ? "✅ " + d.name : "❌ " + d.msg;
         if(navigator.vibrate) navigator.vibrate(200);
-        setTimeout(() => {
-          res.style.display = 'none';
-          scanner.resume();
-        }, 3000);
+        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 3000);
       })
       .catch(e => {
         name.innerText = "❌ 連線失敗";
