@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>專業掃描器 - 外掛版</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #000; color: white; text-align: center; }
+    #reader { width: 100vw; height: 80vh; }
+    #result-box { padding: 20px; font-size: 1.2em; position: fixed; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); }
+    .success { color: #00ff00; }
+    .error { color: #ff4444; }
+  </style>
+</head>
+<body>
+
+  <div id="reader"></div>
+  <div id="result-box">準備掃描中...</div>
+
+<script>
+  // 這裡填入您部署後的 GAS Web App 網址
+  const GAS_URL = "https://script.google.com/macros/s/您的ID/exec";
+
+  const html5QrCode = new Html5Qrcode("reader");
+
+  function start() {
+    html5QrCode.start(
+      { facingMode: "environment" }, 
+      { 
+        fps: 20, 
+        qrbox: { width: 280, height: 100 },
+        formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128 ]
+      },
+      onScanSuccess
+    );
+  }
+
+  function onScanSuccess(decodedText) {
+    // 暫停掃描避免連拍
+    html5QrCode.pause();
+    document.getElementById('result-box').innerText = "⏳ 比對中...";
+
+    // 發送給 GAS
+    fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`)
+      .then(res => res.json())
+      .then(data => {
+        const box = document.getElementById('result-box');
+        if (data.status === "success") {
+          box.innerHTML = `<span class="success">✅ ${data.name} 報到成功</span>`;
+          if(navigator.vibrate) navigator.vibrate(200);
+        } else {
+          box.innerHTML = `<span class="error">❌ ${data.msg}</span>`;
+        }
+        
+        // 2秒後自動恢復掃描
+        setTimeout(() => {
+          box.innerText = "請掃描下一張...";
+          html5QrCode.resume();
+        }, 2000);
+      })
+      .catch(err => {
+        alert("連線錯誤：" + err);
+        html5QrCode.resume();
+      });
+  }
+
+  // 頁面載入直接啟動 (因為是在獨立網域，通常不需按鈕即可啟動)
+  window.onload = start;
+</script>
+</body>
+</html>
