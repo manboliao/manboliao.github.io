@@ -1,40 +1,54 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>專業掃描器 - 外掛版</title>
-  <script src="https://unpkg.com/html5-qrcode"></script>
-  <style>
-    body { font-family: sans-serif; margin: 0; background: #000; color: white; text-align: center; }
-    #reader { width: 100vw; height: 80vh; }
-    #result-box { padding: 20px; font-size: 1.2em; position: fixed; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); }
-    .success { color: #00ff00; }
-    .error { color: #ff4444; }
-  </style>
-</head>
-<body>
+function onScanSuccess(decodedText) {
+  // 暫停掃描，顯示處理中
+  html5QrCode.pause();
+  document.getElementById('result-box').innerText = "⏳ 比對中...";
 
-  <div id="reader"></div>
-  <div id="result-box">準備掃描中...</div>
+  // 封裝成 JSON 透過 POST 發送
+  const payload = { id: decodedText };
 
-<script>
-  // 這裡填入您部署後的 GAS Web App 網址
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
+  fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'no-cors', // ⚠️ 注意：對 GAS 使用 POST 時，常會因為轉址而無法讀取回應內容
+    body: JSON.stringify(payload),
+    headers: {
+      'Content-Type': 'text/plain' // GAS doPost 的標準接收格式
+    }
+  })
+  .then(() => {
+    /* 注意：當使用 mode: 'no-cors' 配合 POST 到 GAS 時，
+       由於 Google 的安全性轉址，JavaScript 無法直接讀取 response 物件。
+       這在多手機同步時是一個常見的權限問題。
+    */
+    // 建議做法：如果需要讀取後端回傳的 JSON 結果，
+    // 最穩定的方案依然是將資料編碼後透過 POST 帶參數，
+    // 或是在 GAS 端將回應封裝在一個特定重導向中。
+    
+    // 如果您在 GitHub 上遇到 no-cors 導致看不到結果，
+    // 這裡有一個「專業折衷版」的 fetch 寫法：
+    fetchCheckInResult(decodedText);
+  });
+}
 
-  const html5QrCode = new Html5Qrcode("reader");
-
-  function start() {
-    html5QrCode.start(
-      { facingMode: "environment" }, 
-      { 
-        fps: 20, 
-        qrbox: { width: 280, height: 100 },
-        formatsToSupport: [ Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128 ]
-      },
-      onScanSuccess
-    );
-  }
+/**
+ * 考慮到資安與 GAS 的特殊轉址限制，
+ * 這是目前最穩定的跨域請求寫法
+ */
+function fetchCheckInResult(scannedId) {
+  // 這裡依然建議對 ID 進行一次簡單的編碼，但不放在網址列，而是透過 API 溝通
+  // 若要完全解決個資風險，可將 ID 在前端先進行雜湊 (Hash) 處理
+  fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ id: scannedId })
+  })
+  .then(res => res.json())
+  .then(data => {
+    updateUI(data);
+  })
+  .catch(err => {
+    document.getElementById('result-box').innerText = "連線錯誤，請重試";
+    setTimeout(() => { html5QrCode.resume(); }, 2000);
+  });
+}  }
 
   function onScanSuccess(decodedText) {
   html5QrCode.pause();
