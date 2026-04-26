@@ -3,38 +3,102 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>報到系統-影像修復版</title>
+  <title>報到系統-極限強效版</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
     body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
-    #start-screen { position: fixed; inset: 0; background: #1a1a1a; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .btn { padding: 20px 50px; font-size: 1.3em; background: #007bff; color: white; border: none; border-radius: 50px; }
-    
-    /* 相機容器 */
-    #reader { width: 100vw; height: 100vh; background: #000; }
-    /* 強制 Video 標籤填滿 */
+    #reader { width: 100vw; height: 100vh; position: fixed; inset: 0; z-index: 1; background: #000; }
     #reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-
+    #start-screen { position: fixed; inset: 0; background: #1a1a1a; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .btn { padding: 20px 60px; font-size: 1.4em; background: #007bff; color: white; border: none; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
     #overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .scan-box { width: 80%; height: 120px; border: 2px solid #28a745; background: rgba(40,167,69,0.1); }
-    
-    #result { position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%); width: 80%; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 15px; z-index: 101; text-align: center; display: none; border: 1px solid #444; }
+    .scan-box { width: 85%; height: 100px; border: 2px solid #28a745; background: rgba(40,167,69,0.1); position: relative; }
+    .scan-line { position: absolute; width: 100%; height: 1px; background: #ff0000; top: 50%; }
+    #result { position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%); width: 85%; background: rgba(0,0,0,0.95); padding: 25px; border-radius: 20px; z-index: 101; text-align: center; display: none; border: 2px solid #444; }
   </style>
 </head>
 <body>
 
   <div id="start-screen">
-    <h3>課程報到系統</h3>
-    <button class="btn" onclick="init()">啟動掃描槍模式</button>
+    <h2 style="margin-bottom:30px;">醫師課程報到系統</h2>
+    <button class="btn" onclick="init()">啟動高效掃描</button>
   </div>
 
   <div id="reader"></div>
 
   <div id="overlay">
-    <div class="scan-box"></div>
-    <p style="margin-top:15px; text-shadow: 1px 1px 2px #000;">對準身分證背面條碼</p>
+    <div class="scan-box"><div class="scan-line"></div></div>
+    <p style="margin-top:20px; text-shadow: 2px 2px 4px #000;">請對準身分證背面「最上方」條碼</p>
   </div>
 
+  <div id="result">
+    <div id="res-name" style="font-size:2em; font-weight:bold; color:#28a745;"></div>
+  </div>
+
+<script>
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
+  let scanner;
+
+  async function init() {
+    document.getElementById('start-screen').style.display = 'none';
+    scanner = new Html5Qrcode("reader", { 
+      // 關鍵：開啟硬體加速與實驗性引擎
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true } 
+    });
+
+    const config = { 
+      fps: 25, // 提高幀率
+      qrbox: { width: 320, height: 100 },
+      // 強制高解析度，這對細小的 Code 39 條碼至關重要
+      videoConstraints: {
+        facingMode: "environment",
+        width: { min: 1280, ideal: 1920 },
+        height: { min: 720, ideal: 1080 }
+      }
+    };
+
+    try {
+      await scanner.start({ facingMode: "environment" }, config, onScan);
+      const v = document.querySelector('video');
+      if (v) { v.setAttribute('playsinline', 'true'); v.play(); }
+    } catch (err) {
+      alert("啟動錯誤: " + err);
+    }
+  }
+
+  function onScan(code) {
+    // 1. 基礎抗噪：過濾掉長度明顯不對或不含英數的結果
+    const cleanId = code.replace(/[^A-Za-z0-9]/g, '');
+    if (cleanId.length < 5) return; 
+
+    scanner.pause();
+    const res = document.getElementById('result');
+    const name = document.getElementById('res-name');
+    res.style.display = 'block';
+    name.innerText = "⏳ 辨識中...";
+
+    // 2. 直接發送給 GAS 進行「模糊比對」與「時分秒記錄」
+    fetch(`${GAS_URL}?id=${encodeURIComponent(cleanId)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === "success") {
+          name.innerHTML = `<span style="font-size:0.5em;color:#aaa;">${d.msg}</span><br>${d.name}`;
+          name.style.color = "#28a745";
+        } else {
+          name.innerText = "❌ " + d.msg;
+          name.style.color = "#dc3545";
+        }
+        if(navigator.vibrate) navigator.vibrate(200);
+        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 2500);
+      })
+      .catch(e => {
+        name.innerText = "連線失敗";
+        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 2500);
+      });
+  }
+</script>
+</body>
+</html>
   <div id="result"><div id="name" style="font-size:1.5em; font-weight:bold; color:#28a745;"></div></div>
 
 <script>
