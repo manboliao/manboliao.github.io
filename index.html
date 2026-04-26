@@ -3,38 +3,145 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>報到系統-極限強效版</title>
+  <title>專業報到系統 - 即時回饋版</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
     body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
     #reader { width: 100vw; height: 100vh; position: fixed; inset: 0; z-index: 1; background: #000; }
     #reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+    
     #start-screen { position: fixed; inset: 0; background: #1a1a1a; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .btn { padding: 20px 60px; font-size: 1.4em; background: #007bff; color: white; border: none; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    
     #overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .scan-box { width: 85%; height: 100px; border: 2px solid #28a745; background: rgba(40,167,69,0.1); position: relative; }
-    .scan-line { position: absolute; width: 100%; height: 1px; background: #ff0000; top: 50%; }
-    #result { position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%); width: 85%; background: rgba(0,0,0,0.95); padding: 25px; border-radius: 20px; z-index: 101; text-align: center; display: none; border: 2px solid #444; }
+    .scan-box { width: 85%; height: 110px; border: 2px solid #28a745; background: rgba(40,167,69,0.1); position: relative; }
+    
+    /* 這裡新增：即時辨識結果的顯示文字 */
+    #live-feedback {
+      margin-top: 15px;
+      font-size: 1.2em;
+      color: #00ff00;
+      background: rgba(0,0,0,0.6);
+      padding: 5px 15px;
+      border-radius: 10px;
+      font-family: monospace;
+      min-height: 1.5em;
+    }
+
+    #result { 
+      position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%); 
+      width: 85%; background: rgba(0,0,0,0.95); padding: 25px; 
+      border-radius: 20px; z-index: 101; text-align: center; 
+      display: none; border: 2px solid #444; 
+    }
+    .loading-dot { animation: blink 1s infinite; }
+    @keyframes blink { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
   </style>
 </head>
 <body>
 
   <div id="start-screen">
-    <h2 style="margin-bottom:30px;">醫師課程報到系統</h2>
-    <button class="btn" onclick="init()">啟動高效掃描</button>
+    <h2 style="margin-bottom:10px;">醫師課程報到系統</h2>
+    <p style="color:#888; margin-bottom:30px;">請確保光線充足</p>
+    <button class="btn" onclick="init()">啟動掃描器</button>
   </div>
 
   <div id="reader"></div>
 
   <div id="overlay">
-    <div class="scan-box"><div class="scan-line"></div></div>
-    <p style="margin-top:20px; text-shadow: 2px 2px 4px #000;">請對準身分證背面「最上方」條碼</p>
+    <div class="scan-box"></div>
+    <div id="live-feedback">準備掃描中...</div>
+    <p style="margin-top:15px; text-shadow: 1px 1px 2px #000; font-size: 0.9em;">請對準條碼，保持約 15 公分距離</p>
   </div>
 
   <div id="result">
-    <div id="res-name" style="font-size:2em; font-weight:bold; color:#28a745;"></div>
+    <div id="res-msg" style="font-size:0.9em; color:#aaa; margin-bottom:5px;"></div>
+    <div id="res-name" style="font-size:1.8em; font-weight:bold; color:#28a745;"></div>
   </div>
 
+<script>
+  // ⚠️ 填入您最新的 GAS /exec 網址
+  const GAS_URL = "您的最新/exec網址";
+  let scanner;
+  let isLocked = false;
+
+  async function init() {
+    document.getElementById('start-screen').style.display = 'none';
+    scanner = new Html5Qrcode("reader", { 
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true } 
+    });
+
+    const config = { 
+      fps: 20, 
+      qrbox: { width: 320, height: 110 },
+      videoConstraints: {
+        facingMode: "environment",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+
+    try {
+      await scanner.start({ facingMode: "environment" }, config, onScan);
+      const v = document.querySelector('video');
+      if (v) { v.setAttribute('playsinline', 'true'); v.play(); }
+    } catch (err) {
+      alert("相機啟動錯誤: " + err);
+    }
+  }
+
+  function onScan(code) {
+    if (isLocked) return;
+
+    // 1. 即時顯示系統「看到了什麼」
+    const feedback = document.getElementById('live-feedback');
+    feedback.innerText = "偵測到: " + code;
+    
+    // 2. 抗噪處理：只抓取符合身分證字號特徵的內容
+    const match = code.match(/[A-Z][1-289]\d{8}/i);
+    if (!match) return; // 如果掃到的不是字號格式，不發送請求，繼續掃描
+
+    // 3. 觸發報到程序
+    isLocked = true;
+    scanner.pause();
+    
+    const cleanCode = match[0].toUpperCase();
+    feedback.innerText = "✅ 讀取成功: " + cleanCode;
+    
+    const res = document.getElementById('result');
+    const msg = document.getElementById('res-msg');
+    const name = document.getElementById('res-name');
+    
+    res.style.display = 'block';
+    msg.innerHTML = `正在連線雲端比對 <span class="loading-dot">...</span>`;
+    name.innerText = cleanCode;
+    name.style.color = "#fff";
+
+    fetch(`${GAS_URL}?id=${encodeURIComponent(cleanCode)}`)
+      .then(r => r.json())
+      .then(d => {
+        msg.innerText = d.msg;
+        name.innerText = d.status === "error" ? "❌ 查無此人" : d.name;
+        name.style.color = (d.status === "success") ? "#28a745" : (d.status === "warn" ? "#ffc107" : "#dc3545");
+        
+        if(navigator.vibrate) navigator.vibrate(200);
+        
+        setTimeout(() => {
+          res.style.display = 'none';
+          feedback.innerText = "準備掃描下一位...";
+          isLocked = false;
+          scanner.resume();
+        }, 3000);
+      })
+      .catch(e => {
+        msg.innerText = "❌ 連線失敗";
+        name.innerText = "請檢查網路";
+        setTimeout(() => { res.style.display = 'none'; isLocked = false; scanner.resume(); }, 3000);
+      });
+  }
+</script>
+</body>
+</html>
 <script>
   const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
   let scanner;
