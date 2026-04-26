@@ -3,38 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>專業報到系統 - 穩定強化版</title>
+  <title>專業報到系統 - 影像修正版</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    :root { --primary: #007bff; --success: #28a745; --error: #dc3545; }
     body { font-family: sans-serif; margin: 0; background: #000; color: white; height: 100vh; overflow: hidden; }
+    
+    /* 確保容器有固定大小，且不會被隱藏 */
+    #reader { 
+      width: 100vw; 
+      height: 100vh; 
+      background: #000;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    
+    /* 修正：讓 html5-qrcode 自動生成的 video 標籤充滿螢幕 */
+    #reader video {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important; /* 確保畫面充滿 */
+    }
+
     #start-screen { position: fixed; inset: 0; background: #1a1a1a; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .btn-start { padding: 18px 45px; font-size: 1.3em; background: var(--primary); color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-    
-    #reader { width: 100vw; height: 100vh; }
-    
-    /* 掃描輔助介面 */
-    #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-    .scan-box { width: 75%; height: 130px; border: 2px solid var(--success); position: relative; background: rgba(40,167,69,0.1); }
+    .btn-start { padding: 18px 45px; font-size: 1.3em; background: #007bff; color: white; border: none; border-radius: 50px; cursor: pointer; }
+
+    #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 10; }
+    .scan-box { width: 80%; height: 120px; border: 2px solid #28a745; position: relative; background: rgba(40,167,69,0.1); }
     .scan-line { position: absolute; width: 100%; height: 2px; background: #ff0000; top: 50%; animation: scan-mov 2s infinite linear; }
     @keyframes scan-mov { 0%, 100% { top: 10%; } 50% { top: 90%; } }
 
-    /* 結果彈窗 */
     #result-panel { 
-      position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 10%; left: 50%; transform: translateX(-50%);
       width: 80%; padding: 20px; border-radius: 15px; text-align: center; 
-      display: none; z-index: 100; background: rgba(0,0,0,0.9); border: 1px solid #444;
+      display: none; z-index: 101; background: rgba(0,0,0,0.85);
     }
-    .res-name { font-size: 1.6em; font-weight: bold; margin: 5px 0; color: var(--success); }
-    #debug-info { position: absolute; top: 10px; font-size: 0.7em; color: #666; width: 100%; text-align: center; }
   </style>
 </head>
 <body>
 
   <div id="start-screen">
-    <h3 style="margin-bottom:30px;">傳統中醫課程報到系統</h3>
-    <button class="btn-start" onclick="startSystem()">啟動掃描槍模式</button>
+    <h3>傳統中醫課程報到系統</h3>
+    <button class="btn-start" onclick="startSystem()">啟動相機</button>
   </div>
+
+  <div id="reader"></div>
+
+  <div id="overlay">
+    <div class="scan-box"><div class="scan-line"></div></div>
+    <p style="margin-top:15px; text-shadow: 1px 1px 2px #000;">請對準身分證背面條碼</p>
+  </div>
+
+  <div id="result-panel">
+    <div id="res-name" style="font-size:1.6em; font-weight:bold; color:#28a745;">讀取中...</div>
+  </div>
+
+<script>
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
+  let html5QrCode;
+
+  function startSystem() {
+    document.getElementById('start-screen').style.display = 'none';
+    
+    // 初始化時先清空容器，避免重複載入導致的黑畫面
+    document.getElementById('reader').innerHTML = ""; 
+
+    html5QrCode = new Html5Qrcode("reader");
+
+    const config = { 
+      fps: 15, 
+      // 這裡先不設定 qrbox，讓它全螢幕顯示，先確保「看得到畫面」
+      aspectRatio: window.innerHeight / window.innerWidth
+    };
+
+    html5QrCode.start(
+      { facingMode: "environment" }, 
+      config, 
+      onScanSuccess
+    ).then(() => {
+        console.log("相機啟動成功");
+    }).catch(err => {
+        alert("啟動出錯: " + err);
+        document.getElementById('start-screen').style.display = 'flex';
+    });
+  }
+
+  function onScanSuccess(decodedText) {
+    html5QrCode.pause();
+    document.getElementById('result-panel').style.display = 'block';
+    
+    // 這裡改用您測試過最穩定的 GET 方式來拿結果
+    fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`)
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('res-name').innerText = data.name + " 報到成功";
+        if(navigator.vibrate) navigator.vibrate(200);
+        setTimeout(() => {
+          document.getElementById('result-panel').style.display = 'none';
+          html5QrCode.resume();
+        }, 3000);
+      });
+  }
+</script>
+</body>
+</html>  </div>
 
   <div id="debug-info">引擎啟動中...</div>
   <div id="reader"></div>
