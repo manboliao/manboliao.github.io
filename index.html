@@ -2,360 +2,130 @@
 <html lang="zh-TW">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>專業報到系統 - 影像修正版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>專業掃描系統 - 影像強制版</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: sans-serif; margin: 0; background: #000; color: white; height: 100vh; overflow: hidden; }
+    body { margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; }
     
-    /* 確保容器有固定大小，且不會被隱藏 */
+    /* 核心相機容器：強制撐開且設為黑色底 */
     #reader { 
-      width: 100vw; 
-      height: 100vh; 
+      width: 100vw !important; 
+      height: 100vh !important; 
+      position: fixed; 
+      top: 0; 
+      left: 0; 
+      z-index: 1; /* 最底層 */
       background: #000;
-      position: absolute;
-      top: 0;
-      left: 0;
     }
-    
-    /* 修正：讓 html5-qrcode 自動生成的 video 標籤充滿螢幕 */
-    #reader video {
+
+    /* 強制內部的 Video 標籤充滿螢幕且置頂 */
+    video {
       width: 100% !important;
       height: 100% !important;
-      object-fit: cover !important; /* 確保畫面充滿 */
+      object-fit: cover !important;
     }
 
-    #start-screen { position: fixed; inset: 0; background: #1a1a1a; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .btn-start { padding: 18px 45px; font-size: 1.3em; background: #007bff; color: white; border: none; border-radius: 50px; cursor: pointer; }
+    #start-screen {
+      position: fixed; inset: 0; background: #1a1a1a; 
+      z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .btn { padding: 20px 50px; font-size: 1.3em; background: #007bff; color: white; border: none; border-radius: 50px; cursor: pointer; }
 
-    #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 10; }
-    .scan-box { width: 80%; height: 120px; border: 2px solid #28a745; position: relative; background: rgba(40,167,69,0.1); }
-    .scan-line { position: absolute; width: 100%; height: 2px; background: #ff0000; top: 50%; animation: scan-mov 2s infinite linear; }
-    @keyframes scan-mov { 0%, 100% { top: 10%; } 50% { top: 90%; } }
+    #overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .scan-box { width: 80%; height: 120px; border: 2px solid #28a745; box-shadow: 0 0 20px rgba(40,167,69,0.5); position: relative; }
+    .scan-line { position: absolute; width: 100%; height: 2px; background: #ff0000; top: 50%; animation: scan-m 2s infinite linear; }
+    @keyframes scan-m { 0%, 100% { top: 10%; } 50% { top: 90%; } }
 
-    #result-panel { 
-      position: fixed; bottom: 10%; left: 50%; transform: translateX(-50%);
-      width: 80%; padding: 20px; border-radius: 15px; text-align: center; 
-      display: none; z-index: 101; background: rgba(0,0,0,0.85);
+    #result { 
+      position: fixed; bottom: 15%; left: 50%; transform: translateX(-50%);
+      width: 80%; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 15px; 
+      z-index: 100; text-align: center; display: none; border: 1px solid #444;
     }
   </style>
 </head>
 <body>
 
   <div id="start-screen">
-    <h3>傳統中醫課程報到系統</h3>
-    <button class="btn-start" onclick="startSystem()">啟動相機</button>
+    <h3>中醫課程報到系統</h3>
+    <button class="btn" onclick="go()">啟動相機</button>
+    <p style="color:#666; margin-top:20px;">請確保使用 Safari 或 Chrome</p>
   </div>
 
   <div id="reader"></div>
 
   <div id="overlay">
     <div class="scan-box"><div class="scan-line"></div></div>
-    <p style="margin-top:15px; text-shadow: 1px 1px 2px #000;">請對準身分證背面條碼</p>
+    <p style="margin-top:15px; background: rgba(0,0,0,0.5); padding: 5px 10px;">請將條碼置於綠框內</p>
   </div>
 
-  <div id="result-panel">
-    <div id="res-name" style="font-size:1.6em; font-weight:bold; color:#28a745;">讀取中...</div>
+  <div id="result">
+    <div id="name" style="font-size:1.5em; font-weight:bold; color:#28a745;"></div>
   </div>
 
 <script>
   const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
-  let html5QrCode;
+  let scanner;
 
-  function startSystem() {
-    document.getElementById('start-screen').style.display = 'none';
-    
-    // 初始化時先清空容器，避免重複載入導致的黑畫面
-    document.getElementById('reader').innerHTML = ""; 
-
-    html5QrCode = new Html5Qrcode("reader");
-
-    const config = { 
-      fps: 15, 
-      // 這裡先不設定 qrbox，讓它全螢幕顯示，先確保「看得到畫面」
-      aspectRatio: window.innerHeight / window.innerWidth
-    };
-
-    html5QrCode.start(
-      { facingMode: "environment" }, 
-      config, 
-      onScanSuccess
-    ).then(() => {
-        console.log("相機啟動成功");
-    }).catch(err => {
-        alert("啟動出錯: " + err);
-        document.getElementById('start-screen').style.display = 'flex';
-    });
-  }
-
-  function onScanSuccess(decodedText) {
-    html5QrCode.pause();
-    document.getElementById('result-panel').style.display = 'block';
-    
-    // 這裡改用您測試過最穩定的 GET 方式來拿結果
-    fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`)
-      .then(res => res.json())
-      .then(data => {
-        document.getElementById('res-name').innerText = data.name + " 報到成功";
-        if(navigator.vibrate) navigator.vibrate(200);
-        setTimeout(() => {
-          document.getElementById('result-panel').style.display = 'none';
-          html5QrCode.resume();
-        }, 3000);
-      });
-  }
-</script>
-</body>
-</html>  </div>
-
-  <div id="debug-info">引擎啟動中...</div>
-  <div id="reader"></div>
-
-  <div id="overlay">
-    <div class="scan-box">
-      <div class="scan-line"></div>
-    </div>
-    <p style="margin-top:15px; text-shadow: 1px 1px 2px #000;">請對準身分證背面長條碼</p>
-  </div>
-
-  <div id="result-panel">
-    <div id="res-msg" style="font-size:0.9em; opacity:0.8;">處理中...</div>
-    <div id="res-name" class="res-name">讀取成功</div>
-    <div id="res-time" style="font-size:0.8em; opacity:0.6;"></div>
-  </div>
-
-<script>
-  // ⚠️ 請務必填入您的 GAS 正式網址
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbwqMg0DXeIFvgfvWFQ-Yk31MpqbQ7jYw0CD2tLrEmYrhmRIQwiBanZviehcj4HhSz4C/exec";
-
-  let html5QrCode;
-  let isProcessing = false;
-
-  function startSystem() {
-    console.log("嘗試啟動系統...");
+  async function go() {
     document.getElementById('start-screen').style.display = 'none';
 
-    // 1. 檢查函式庫是否載入
-    if (typeof Html5Qrcode === "undefined") {
-      alert("錯誤：找不到掃描函式庫，請檢查網路連線或 CDN 網址。");
-      document.getElementById('start-screen').style.display = 'flex';
-      return;
-    }
-
-    try {
-      html5QrCode = new Html5Qrcode("reader");
-      
-      const config = { 
-        fps: 15, 
-        qrbox: { width: 280, height: 120 }
-      };
-
-      console.log("開始要求相機權限...");
-      
-      // 2. 執行啟動
-      html5QrCode.start(
-        { facingMode: "environment" }, 
-        config, 
-        onScanSuccess
-      )
-      .then(() => {
-        document.getElementById('debug-info').innerText = "相機已成功啟動";
-        console.log("相機啟動成功");
-      })
-      .catch(err => {
-        // 3. 捕捉具體錯誤訊息
-        console.error("相機啟動失敗:", err);
-        alert("相機啟動失敗！\n原因：" + err + 
-              "\n\n提示：請確認是否已在網址列左側允許相機權限，或是否使用了非 HTTPS 網址。");
-        document.getElementById('start-screen').style.display = 'flex';
-      });
-
-    } catch (e) {
-      alert("程式執行發生異常: " + e.message);
-    }
-  }
-
-    // 關鍵修正：移除 formatsToSupport 限制，讓它預設掃描所有格式
-    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
-    .then(() => { document.getElementById('debug-info').innerText = "掃描引擎已就緒"; })
-    .catch(err => {
-      alert("相機啟動失敗，請確認是否為 HTTPS 環境且已授權相機。");
-    });
-  }
-
-  function onScanSuccess(decodedText) {
-    if (isProcessing) return;
-    isProcessing = true;
-
-    html5QrCode.pause(); // 暫停掃描
-    showUI("⏳ 比對中...", "請稍候", "success");
-
-    // 改回 POST 傳輸，但優化 fetch 設定以避免 GAS 轉址錯誤
-    fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors', // 解決大多數跨網域問題
-      body: JSON.stringify({ id: decodedText }),
-      headers: { 'Content-Type': 'text/plain' }
-    })
-    .then(() => {
-      // 由於 no-cors 模式下無法讀取 response body (GAS 特性)
-      // 我們在這裡進行一個二次確認或是簡單顯示「已送出」
-      // 如果您需要顯示「學員姓名」，建議使用之前那個可以運作的 GET 方式。
-      // 或者，我們用一個小技巧：
-      fetchCheckInResult(decodedText);
-    })
-    .catch(err => {
-      showUI("❌ 連線異常", "請重試", "error");
-      setTimeout(resetScanner, 3000);
-    });
-  }
-
-  // 二次確認（用於獲取 GAS 回傳的 JSON 結果）
-  function fetchCheckInResult(id) {
-    // 這裡我們偷偷用 GET 方式去拿結果，因為 POST 拿不到 Body
-    fetch(`${GAS_URL}?id=${encodeURIComponent(id)}`)
-    .then(res => res.json())
-    .then(data => {
-      showUI(data.msg, data.name || "---", "success");
-      if(navigator.vibrate) navigator.vibrate(200);
-      setTimeout(resetScanner, 3000);
-    })
-    .catch(() => {
-      showUI("✅ 已送出請求", "請查看試算表", "success");
-      setTimeout(resetScanner, 3000);
-    });
-  }
-
-  function showUI(msg, name, type) {
-    const panel = document.getElementById('result-panel');
-    panel.style.display = 'block';
-    document.getElementById('res-msg').innerText = msg;
-    document.getElementById('res-name').innerText = name;
-  }
-
-  function resetScanner() {
-    document.getElementById('result-panel').style.display = 'none';
-    isProcessing = false;
-    html5QrCode.resume();
-  }
-</script>
-</body>
-</html>    }
-    .res-title { font-size: 1.1em; margin-bottom: 5px; opacity: 0.9; }
-    .res-name { font-size: 1.8em; font-weight: bold; margin: 10px 0; }
-    .status-success { border-left: 8px solid var(--success-color); color: var(--success-color); }
-    .status-warn { border-left: 8px solid var(--warn-color); color: var(--warn-color); }
-    .status-error { border-left: 8px solid var(--error-color); color: var(--error-color); }
-
-    .hint { position: absolute; top: 15%; color: rgba(255,255,255,0.7); font-size: 0.9em; text-shadow: 1px 1px 2px #000; }
-  </style>
-</head>
-<body>
-
-  <div id="start-screen">
-    <h2 style="margin-bottom:10px;">醫師課程報到系統</h2>
-    <p style="color:#888; margin-bottom:40px;">專業條碼掃描模式</p>
-    <button class="btn-start" onclick="startSystem()">啟動掃描器</button>
-  </div>
-
-  <div id="reader"></div>
-
-  <div id="overlay">
-    <p class="hint">請將身分證背面條碼對準綠色框</p>
-    <div class="scan-box">
-      <div class="scan-line"></div>
-    </div>
-  </div>
-
-  <div id="result-panel">
-    <div id="res-content">
-      <div class="res-title" id="res-msg">處理中...</div>
-      <div class="res-name" id="res-name">---</div>
-      <div style="font-size: 0.8em; opacity: 0.7;" id="res-time"></div>
-    </div>
-  </div>
-
-<script>
-  // ==========================================
-  // 請在此填入您部署後的 GAS Web App 正式網址 (需為 /exec 結尾)
-  // ==========================================
-  const GAS_URL = "https://script.google.com/macros/s/您的ID/exec";
-
-  let html5QrCode;
-  let isProcessing = false;
-
-  function startSystem() {
-    document.getElementById('start-screen').style.display = 'none';
-    html5QrCode = new Html5Qrcode("reader");
+    // 1. 初始化掃描器
+    scanner = new Html5Qrcode("reader");
 
     const config = { 
       fps: 20, 
-      qrbox: { width: 300, height: 120 },
-      // 只開啟 1D 條碼格式，大幅提升辨識速度與精準度
-      formatsToSupport: [ 
-        Html5QrcodeSupportedFormats.CODE_39, 
-        Html5QrcodeSupportedFormats.CODE_128 
-      ]
+      qrbox: { width: 280, height: 120 },
+      // 移除一切多餘的限制，讓它跑預設最穩定的模式
     };
 
-    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
-    .catch(err => {
-      alert("無法啟動相機。請確保：\n1. 使用 Safari (iOS) 或 Chrome (Android)\n2. 網址為 HTTPS\n3. 已允許相機權限");
-      document.getElementById('start-screen').style.display = 'flex';
-    });
-  }
+    try {
+      // 2. 啟動
+      await scanner.start(
+        { facingMode: "environment" }, 
+        config, 
+        onScan
+      );
 
-  function onScanSuccess(decodedText) {
-    if (isProcessing) return;
-    isProcessing = true;
-
-    // 暫停掃描，給予視覺反饋
-    html5QrCode.pause();
-    showUI("⏳ 比對名單中...", "請稍候", "", "processing");
-
-    // 資安強化：使用 POST 發送 JSON 資料
-    fetch(GAS_URL, {
-      method: 'POST',
-      redirect: 'follow', // 重要：處理 Google 的轉址
-      body: JSON.stringify({ id: decodedText }),
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' } // 避免 CORS 預檢請求
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.status === "success") {
-        showUI("✅ " + data.msg, data.name, data.time, "success");
-        if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      } else if (data.status === "warn") {
-        showUI("⚠️ " + data.msg, data.name, "已記錄", "warn");
-        if(navigator.vibrate) navigator.vibrate(300);
-      } else {
-        showUI("❌ 錯誤", data.msg, "請手動確認", "error");
+      // 3. 【黑畫面終結者】：強制 Video 標籤播放
+      const v = document.querySelector('#reader video');
+      if (v) {
+        v.setAttribute('playsinline', 'true');
+        v.setAttribute('muted', 'true');
+        v.setAttribute('autoplay', 'true');
+        v.play(); // 強制執行播放指令
       }
       
-      // 3秒後恢復掃描
-      setTimeout(resetScanner, 3000);
-    })
-    .catch(err => {
-      showUI("❌ 連線異常", "請檢查網路", err.message, "error");
-      setTimeout(resetScanner, 4000);
-    });
+      console.log("相機已啟動並嘗試播放");
+
+    } catch (err) {
+      alert("相機啟動錯誤: " + err);
+      document.getElementById('start-screen').style.display = 'flex';
+    }
   }
 
-  function showUI(msg, name, time, type) {
-    const panel = document.getElementById('result-panel');
-    panel.style.display = 'block';
-    panel.className = ''; 
-    panel.classList.add('status-' + type);
+  function onScan(code) {
+    scanner.pause();
+    const res = document.getElementById('result');
+    const name = document.getElementById('name');
     
-    document.getElementById('res-msg').innerText = msg;
-    document.getElementById('res-name').innerText = name;
-    document.getElementById('res-time').innerText = time || "";
-  }
+    res.style.display = 'block';
+    name.innerText = "⏳ 比對中...";
 
-  function resetScanner() {
-    document.getElementById('result-panel').style.display = 'none';
-    isProcessing = false;
-    html5QrCode.resume();
+    fetch(`${GAS_URL}?id=${encodeURIComponent(code)}`)
+      .then(r => r.json())
+      .then(d => {
+        name.innerText = d.status === "success" ? "✅ " + d.name : "❌ " + d.msg;
+        if(navigator.vibrate) navigator.vibrate(200);
+        setTimeout(() => {
+          res.style.display = 'none';
+          scanner.resume();
+        }, 3000);
+      })
+      .catch(e => {
+        name.innerText = "❌ 連線失敗";
+        setTimeout(() => { res.style.display = 'none'; scanner.resume(); }, 3000);
+      });
   }
 </script>
 </body>
