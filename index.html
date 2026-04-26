@@ -60,17 +60,48 @@
   let isProcessing = false;
 
   function startSystem() {
+    console.log("嘗試啟動系統...");
     document.getElementById('start-screen').style.display = 'none';
-    html5QrCode = new Html5Qrcode("reader");
 
-    const config = { 
-      fps: 15, 
-      qrbox: (viewWidth, viewHeight) => {
-          // 動態計算掃描框，確保在不同手機上都有適當的寬度
-          let width = viewWidth * 0.8;
-          return { width: width, height: 120 };
-      }
-    };
+    // 1. 檢查函式庫是否載入
+    if (typeof Html5Qrcode === "undefined") {
+      alert("錯誤：找不到掃描函式庫，請檢查網路連線或 CDN 網址。");
+      document.getElementById('start-screen').style.display = 'flex';
+      return;
+    }
+
+    try {
+      html5QrCode = new Html5Qrcode("reader");
+      
+      const config = { 
+        fps: 15, 
+        qrbox: { width: 280, height: 120 }
+      };
+
+      console.log("開始要求相機權限...");
+      
+      // 2. 執行啟動
+      html5QrCode.start(
+        { facingMode: "environment" }, 
+        config, 
+        onScanSuccess
+      )
+      .then(() => {
+        document.getElementById('debug-info').innerText = "相機已成功啟動";
+        console.log("相機啟動成功");
+      })
+      .catch(err => {
+        // 3. 捕捉具體錯誤訊息
+        console.error("相機啟動失敗:", err);
+        alert("相機啟動失敗！\n原因：" + err + 
+              "\n\n提示：請確認是否已在網址列左側允許相機權限，或是否使用了非 HTTPS 網址。");
+        document.getElementById('start-screen').style.display = 'flex';
+      });
+
+    } catch (e) {
+      alert("程式執行發生異常: " + e.message);
+    }
+  }
 
     // 關鍵修正：移除 formatsToSupport 限制，讓它預設掃描所有格式
     html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
