@@ -37,33 +37,35 @@
   }
 
   function onScanSuccess(decodedText) {
-    // 暫停掃描避免連拍
-    html5QrCode.pause();
-    document.getElementById('result-box').innerText = "⏳ 比對中...";
+  html5QrCode.pause();
+  document.getElementById('result-box').innerText = "⏳ 比對中...";
 
-    // 發送給 GAS
-    fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`)
-      .then(res => res.json())
-      .then(data => {
-        const box = document.getElementById('result-box');
-        if (data.status === "success") {
-          box.innerHTML = `<span class="success">✅ ${data.name} 報到成功</span>`;
-          if(navigator.vibrate) navigator.vibrate(200);
-        } else {
-          box.innerHTML = `<span class="error">❌ ${data.msg}</span>`;
-        }
-        
-        // 2秒後自動恢復掃描
-        setTimeout(() => {
-          box.innerText = "請掃描下一張...";
-          html5QrCode.resume();
-        }, 2000);
-      })
-      .catch(err => {
-        alert("連線錯誤：" + err);
-        html5QrCode.resume();
-      });
-  }
+  // 加上 redirect: 'follow' 確保追蹤 Google 的轉址
+  fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`, {
+    method: 'GET',
+    mode: 'cors', // 顯式要求跨域模式
+  })
+  .then(response => {
+    if (!response.ok) throw new Error('網路回應不正常');
+    return response.json();
+  })
+  .then(data => {
+    const box = document.getElementById('result-box');
+    if (data.status === "success") {
+      box.innerHTML = `<span class="success">✅ ${data.name} 報到成功</span>`;
+      if(navigator.vibrate) navigator.vibrate(200);
+    } else {
+      box.innerHTML = `<span class="error">❌ ${data.msg}</span>`;
+    }
+    setTimeout(() => { html5QrCode.resume(); }, 2000);
+  })
+  .catch(err => {
+    console.error(err);
+    document.getElementById('result-box').innerHTML = `<span class="error">連線錯誤：${err.message}</span>`;
+    // 如果失敗了，過幾秒自動恢復掃描，不要卡住
+    setTimeout(() => { html5QrCode.resume(); }, 3000);
+  });
+}
 
   // 頁面載入直接啟動 (因為是在獨立網域，通常不需按鈕即可啟動)
   window.onload = start;
