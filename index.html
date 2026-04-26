@@ -1,88 +1,156 @@
-function onScanSuccess(decodedText) {
-  // 暫停掃描，顯示處理中
-  html5QrCode.pause();
-  document.getElementById('result-box').innerText = "⏳ 比對中...";
-
-  // 封裝成 JSON 透過 POST 發送
-  const payload = { id: decodedText };
-
-  fetch(GAS_URL, {
-    method: 'POST',
-    mode: 'no-cors', // ⚠️ 注意：對 GAS 使用 POST 時，常會因為轉址而無法讀取回應內容
-    body: JSON.stringify(payload),
-    headers: {
-      'Content-Type': 'text/plain' // GAS doPost 的標準接收格式
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>專業報到掃描系統</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    :root {
+      --primary-color: #007bff;
+      --success-color: #28a745;
+      --error-color: #dc3545;
+      --warn-color: #ffc107;
     }
-  })
-  .then(() => {
-    /* 注意：當使用 mode: 'no-cors' 配合 POST 到 GAS 時，
-       由於 Google 的安全性轉址，JavaScript 無法直接讀取 response 物件。
-       這在多手機同步時是一個常見的權限問題。
-    */
-    // 建議做法：如果需要讀取後端回傳的 JSON 結果，
-    // 最穩定的方案依然是將資料編碼後透過 POST 帶參數，
-    // 或是在 GAS 端將回應封裝在一個特定重導向中。
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #000; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
     
-    // 如果您在 GitHub 上遇到 no-cors 導致看不到結果，
-    // 這裡有一個「專業折衷版」的 fetch 寫法：
-    fetchCheckInResult(decodedText);
-  });
-}
+    /* 啟動畫面 */
+    #start-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a1a1a; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .btn-start { padding: 18px 40px; font-size: 1.4em; background: var(--primary-color); color: white; border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,123,255,0.4); }
 
-/**
- * 考慮到資安與 GAS 的特殊轉址限制，
- * 這是目前最穩定的跨域請求寫法
- */
-function fetchCheckInResult(scannedId) {
-  // 這裡依然建議對 ID 進行一次簡單的編碼，但不放在網址列，而是透過 API 溝通
-  // 若要完全解決個資風險，可將 ID 在前端先進行雜湊 (Hash) 處理
-  fetch(GAS_URL, {
-    method: 'POST',
-    body: JSON.stringify({ id: scannedId })
-  })
-  .then(res => res.json())
-  .then(data => {
-    updateUI(data);
-  })
-  .catch(err => {
-    document.getElementById('result-box').innerText = "連線錯誤，請重試";
-    setTimeout(() => { html5QrCode.resume(); }, 2000);
-  });
-}  }
+    /* 掃描區域 */
+    #reader { width: 100vw; height: 100vh; }
+    
+    /* 掃描框與動效 */
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+    .scan-box { width: 80%; height: 120px; border: 2px solid var(--success-color); box-shadow: 0 0 20px rgba(40,167,69,0.3); position: relative; background: rgba(40,167,69,0.05); }
+    .scan-line { position: absolute; width: 100%; height: 2px; background: #ff0000; top: 50%; animation: scan-anim 2s infinite linear; }
+    @keyframes scan-anim { 0% { top: 10%; } 50% { top: 90%; } 100% { top: 10%; } }
+
+    /* 結果面板 */
+    #result-panel { 
+      position: fixed; bottom: 10%; left: 50%; transform: translateX(-50%);
+      width: 85%; max-width: 400px; padding: 20px; border-radius: 15px;
+      text-align: center; display: none; z-index: 100;
+      backdrop-filter: blur(10px); background: rgba(0,0,0,0.85);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .res-title { font-size: 1.1em; margin-bottom: 5px; opacity: 0.9; }
+    .res-name { font-size: 1.8em; font-weight: bold; margin: 10px 0; }
+    .status-success { border-left: 8px solid var(--success-color); color: var(--success-color); }
+    .status-warn { border-left: 8px solid var(--warn-color); color: var(--warn-color); }
+    .status-error { border-left: 8px solid var(--error-color); color: var(--error-color); }
+
+    .hint { position: absolute; top: 15%; color: rgba(255,255,255,0.7); font-size: 0.9em; text-shadow: 1px 1px 2px #000; }
+  </style>
+</head>
+<body>
+
+  <div id="start-screen">
+    <h2 style="margin-bottom:10px;">醫師課程報到系統</h2>
+    <p style="color:#888; margin-bottom:40px;">專業條碼掃描模式</p>
+    <button class="btn-start" onclick="startSystem()">啟動掃描器</button>
+  </div>
+
+  <div id="reader"></div>
+
+  <div id="overlay">
+    <p class="hint">請將身分證背面條碼對準綠色框</p>
+    <div class="scan-box">
+      <div class="scan-line"></div>
+    </div>
+  </div>
+
+  <div id="result-panel">
+    <div id="res-content">
+      <div class="res-title" id="res-msg">處理中...</div>
+      <div class="res-name" id="res-name">---</div>
+      <div style="font-size: 0.8em; opacity: 0.7;" id="res-time"></div>
+    </div>
+  </div>
+
+<script>
+  // ==========================================
+  // 請在此填入您部署後的 GAS Web App 正式網址 (需為 /exec 結尾)
+  // ==========================================
+  const GAS_URL = "https://script.google.com/macros/s/您的ID/exec";
+
+  let html5QrCode;
+  let isProcessing = false;
+
+  function startSystem() {
+    document.getElementById('start-screen').style.display = 'none';
+    html5QrCode = new Html5Qrcode("reader");
+
+    const config = { 
+      fps: 20, 
+      qrbox: { width: 300, height: 120 },
+      // 只開啟 1D 條碼格式，大幅提升辨識速度與精準度
+      formatsToSupport: [ 
+        Html5QrcodeSupportedFormats.CODE_39, 
+        Html5QrcodeSupportedFormats.CODE_128 
+      ]
+    };
+
+    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+    .catch(err => {
+      alert("無法啟動相機。請確保：\n1. 使用 Safari (iOS) 或 Chrome (Android)\n2. 網址為 HTTPS\n3. 已允許相機權限");
+      document.getElementById('start-screen').style.display = 'flex';
+    });
+  }
 
   function onScanSuccess(decodedText) {
-  html5QrCode.pause();
-  document.getElementById('result-box').innerText = "⏳ 比對中...";
+    if (isProcessing) return;
+    isProcessing = true;
 
-  // 加上 redirect: 'follow' 確保追蹤 Google 的轉址
-  fetch(`${GAS_URL}?id=${encodeURIComponent(decodedText)}`, {
-    method: 'GET',
-    mode: 'cors', // 顯式要求跨域模式
-  })
-  .then(response => {
-    if (!response.ok) throw new Error('網路回應不正常');
-    return response.json();
-  })
-  .then(data => {
-    const box = document.getElementById('result-box');
-    if (data.status === "success") {
-      box.innerHTML = `<span class="success">✅ ${data.name} 報到成功</span>`;
-      if(navigator.vibrate) navigator.vibrate(200);
-    } else {
-      box.innerHTML = `<span class="error">❌ ${data.msg}</span>`;
-    }
-    setTimeout(() => { html5QrCode.resume(); }, 2000);
-  })
-  .catch(err => {
-    console.error(err);
-    document.getElementById('result-box').innerHTML = `<span class="error">連線錯誤：${err.message}</span>`;
-    // 如果失敗了，過幾秒自動恢復掃描，不要卡住
-    setTimeout(() => { html5QrCode.resume(); }, 3000);
-  });
-}
+    // 暫停掃描，給予視覺反饋
+    html5QrCode.pause();
+    showUI("⏳ 比對名單中...", "請稍候", "", "processing");
 
-  // 頁面載入直接啟動 (因為是在獨立網域，通常不需按鈕即可啟動)
-  window.onload = start;
+    // 資安強化：使用 POST 發送 JSON 資料
+    fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow', // 重要：處理 Google 的轉址
+      body: JSON.stringify({ id: decodedText }),
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' } // 避免 CORS 預檢請求
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "success") {
+        showUI("✅ " + data.msg, data.name, data.time, "success");
+        if(navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      } else if (data.status === "warn") {
+        showUI("⚠️ " + data.msg, data.name, "已記錄", "warn");
+        if(navigator.vibrate) navigator.vibrate(300);
+      } else {
+        showUI("❌ 錯誤", data.msg, "請手動確認", "error");
+      }
+      
+      // 3秒後恢復掃描
+      setTimeout(resetScanner, 3000);
+    })
+    .catch(err => {
+      showUI("❌ 連線異常", "請檢查網路", err.message, "error");
+      setTimeout(resetScanner, 4000);
+    });
+  }
+
+  function showUI(msg, name, time, type) {
+    const panel = document.getElementById('result-panel');
+    panel.style.display = 'block';
+    panel.className = ''; 
+    panel.classList.add('status-' + type);
+    
+    document.getElementById('res-msg').innerText = msg;
+    document.getElementById('res-name').innerText = name;
+    document.getElementById('res-time').innerText = time || "";
+  }
+
+  function resetScanner() {
+    document.getElementById('result-panel').style.display = 'none';
+    isProcessing = false;
+    html5QrCode.resume();
+  }
 </script>
 </body>
 </html>
